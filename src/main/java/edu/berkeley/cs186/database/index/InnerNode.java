@@ -126,18 +126,7 @@ class InnerNode extends BPlusNode {
                 return Optional.empty();
             }
 
-            splitKey = keys.get(order);
-            List<DataBox> rightKeys = new ArrayList<>(keys.subList(order + 1, keys.size()));
-            keys.subList(order, keys.size()).clear();
-
-            List<Long> rightChildern = new ArrayList<>(children.subList(order + 1, children.size()));
-            children.subList(order + 1, children.size()).clear();
-
-            InnerNode newInnerNode = new InnerNode(metadata, bufferManager, rightKeys, rightChildern, treeContext);
-            long newPageNum = newInnerNode.getPage().getPageNum();
-            sync();
-
-            return Optional.of(new Pair<DataBox, Long>(splitKey, newPageNum));
+            return splitNode();
 
         } catch (BPlusTreeException e) {
             throw e;
@@ -149,8 +138,21 @@ class InnerNode extends BPlusNode {
     public Optional<Pair<DataBox, Long>> bulkLoad(Iterator<Pair<DataBox, RecordId>> data,
             float fillFactor) {
         // TODO(proj2): implement
+        BPlusNode rightChild = BPlusNode.fromBytes(metadata, bufferManager, treeContext, children.get(children.size() - 1));
+        Optional<Pair<DataBox, Long>> ret = rightChild.bulkLoad(data, fillFactor);
+        while (keys.size() <= 2 * metadata.getOrder()) {
+            if (!ret.isPresent()) {
+                sync();
+                return Optional.empty();
+            }
+            Pair<DataBox, Long> newData = ret.orElse(null);
+            keys.add(newData.getFirst());
+            children.add(newData.getSecond());
+            rightChild = BPlusNode.fromBytes(metadata, bufferManager, treeContext, children.get(children.size() - 1));
+            ret = rightChild.bulkLoad(data, fillFactor);
+        }
 
-        return Optional.empty();
+        return splitNode();
     }
 
     // See BPlusNode.remove.
@@ -162,6 +164,23 @@ class InnerNode extends BPlusNode {
     }
 
     // Helpers ///////////////////////////////////////////////////////////////////
+    private Optional<Pair<DataBox, Long>> splitNode() {
+        int order = metadata.getOrder();
+
+        DataBox splitKey = keys.get(order);
+        List<DataBox> rightKeys = new ArrayList<>(keys.subList(order + 1, keys.size()));
+        keys.subList(order, keys.size()).clear();
+
+        List<Long> rightChildern = new ArrayList<>(children.subList(order + 1, children.size()));
+        children.subList(order + 1, children.size()).clear();
+
+        InnerNode newInnerNode = new InnerNode(metadata, bufferManager, rightKeys, rightChildern, treeContext);
+        long newPageNum = newInnerNode.getPage().getPageNum();
+        sync();
+
+        return Optional.of(new Pair<DataBox, Long>(splitKey, newPageNum));
+    }
+
     @Override
     public Page getPage() {
         return page;

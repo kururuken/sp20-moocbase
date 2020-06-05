@@ -241,15 +241,7 @@ public class BPlusTree {
         try {
             Optional<Pair<DataBox, Long>> ret = root.put(key, rid);
             if (ret.isPresent()) {
-                DataBox splitKey = ret.orElse(null).getFirst();
-                long pageNum = ret.orElse(null).getSecond();
-                List<DataBox> newKeys = new ArrayList<>();
-                newKeys.add(splitKey);
-                List<Long> newChildern = new ArrayList<>();
-                newChildern.add(root.getPage().getPageNum());
-                newChildern.add(pageNum);
-                InnerNode newRoot = new InnerNode(metadata, bufferManager, newKeys, newChildern, lockContext);
-                updateRoot(newRoot);
+                splitRoot(ret.orElse(null));
             }
         } catch (BPlusTreeException e) {
             throw e;
@@ -276,6 +268,18 @@ public class BPlusTree {
     public void bulkLoad(Iterator<Pair<DataBox, RecordId>> data, float fillFactor) {
         // TODO(proj2): implement
         // TODO(proj4_part3): B+ tree locking
+        if (scanAll().hasNext()) {
+            throw new BPlusTreeException("Bulkloading into a non-empty tree.");
+        }
+
+        // Input integrity is left to users' responsibility.
+        Optional<Pair<DataBox, Long>> ret;
+        while (data.hasNext()) {
+            ret = root.bulkLoad(data, fillFactor);
+            if (ret.isPresent()) {
+                splitRoot(ret.orElse(null));
+            }
+        }
 
         return;
     }
@@ -300,6 +304,18 @@ public class BPlusTree {
     }
 
     // Helpers /////////////////////////////////////////////////////////////////
+    private void splitRoot(Pair<DataBox, Long> ret) {
+        DataBox splitKey = ret.getFirst();
+        long pageNum = ret.getSecond();
+        List<DataBox> newKeys = new ArrayList<>();
+        newKeys.add(splitKey);
+        List<Long> newChildern = new ArrayList<>();
+        newChildern.add(root.getPage().getPageNum());
+        newChildern.add(pageNum);
+        InnerNode newRoot = new InnerNode(metadata, bufferManager, newKeys, newChildern, lockContext);
+        updateRoot(newRoot);
+    }
+
     /**
      * Returns a sexp representation of this tree. See BPlusNode.toSexp for
      * more information.
