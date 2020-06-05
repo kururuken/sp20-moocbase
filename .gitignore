@@ -24,3 +24,7 @@ target/*
 # ignore submission files
 hw*.zip
 
+.vscode
+*.pdf
+*.dot
+

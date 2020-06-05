@@ -1,5 +1,6 @@
 package edu.berkeley.cs186.database.index;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.*;
 
@@ -10,6 +11,7 @@ import edu.berkeley.cs186.database.databox.DataBox;
 import edu.berkeley.cs186.database.databox.Type;
 import edu.berkeley.cs186.database.memory.BufferManager;
 import edu.berkeley.cs186.database.memory.Page;
+import edu.berkeley.cs186.database.table.Record;
 import edu.berkeley.cs186.database.table.RecordId;
 
 /**
@@ -79,8 +81,10 @@ class InnerNode extends BPlusNode {
     @Override
     public LeafNode get(DataBox key) {
         // TODO(proj2): implement
-
-        return null;
+        int n = numLessThanEqual(key, keys);
+        long pageNum = children.get(n);
+        BPlusNode node = BPlusNode.fromBytes(metadata, bufferManager, treeContext, pageNum);
+        return node.get(key);
     }
 
     // See BPlusNode.getLeftmostLeaf.
@@ -88,16 +92,56 @@ class InnerNode extends BPlusNode {
     public LeafNode getLeftmostLeaf() {
         assert(children.size() > 0);
         // TODO(proj2): implement
-
-        return null;
+        long pageNum = children.get(0);
+        BPlusNode leftChild = BPlusNode.fromBytes(metadata, bufferManager, treeContext, pageNum);
+        return leftChild.getLeftmostLeaf();
     }
 
     // See BPlusNode.put.
     @Override
-    public Optional<Pair<DataBox, Long>> put(DataBox key, RecordId rid) {
+    public Optional<Pair<DataBox, Long>> put(DataBox key, RecordId rid){
         // TODO(proj2): implement
+        int n = numLessThanEqual(key, keys);
+        long pageNum = children.get(n);
+        BPlusNode node = BPlusNode.fromBytes(metadata, bufferManager, treeContext, pageNum);
 
-        return Optional.empty();
+        try {
+            Pair<DataBox, Long> ret = node.put(key, rid).orElse(null);
+            if (ret == null) {
+                return Optional.empty();
+            }
+            DataBox splitKey = ret.getFirst();
+            long page = ret.getSecond();
+            n = InnerNode.numLessThan(splitKey, keys);
+            if (n == keys.size()) {
+                keys.add(splitKey);
+                children.add(page);
+            } else {
+                keys.add(n, splitKey);
+                children.add(n + 1, page);
+            }
+            int order = metadata.getOrder();
+            if (keys.size() <= 2 * order) {
+                sync();
+                return Optional.empty();
+            }
+
+            splitKey = keys.get(order);
+            List<DataBox> rightKeys = new ArrayList<>(keys.subList(order + 1, keys.size()));
+            keys.subList(order, keys.size()).clear();
+
+            List<Long> rightChildern = new ArrayList<>(children.subList(order + 1, children.size()));
+            children.subList(order + 1, children.size()).clear();
+
+            InnerNode newInnerNode = new InnerNode(metadata, bufferManager, rightKeys, rightChildern, treeContext);
+            long newPageNum = newInnerNode.getPage().getPageNum();
+            sync();
+
+            return Optional.of(new Pair<DataBox, Long>(splitKey, newPageNum));
+
+        } catch (BPlusTreeException e) {
+            throw e;
+        }
     }
 
     // See BPlusNode.bulkLoad.
@@ -113,7 +157,7 @@ class InnerNode extends BPlusNode {
     @Override
     public void remove(DataBox key) {
         // TODO(proj2): implement
-
+        get(key).remove(key);
         return;
     }
 

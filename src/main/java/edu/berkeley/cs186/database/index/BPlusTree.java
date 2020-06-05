@@ -138,8 +138,7 @@ public class BPlusTree {
         typecheck(key);
         // TODO(proj2): implement
         // TODO(proj4_part3): B+ tree locking
-
-        return Optional.empty();
+        return root.get(key).getKey(key);
     }
 
     /**
@@ -191,8 +190,8 @@ public class BPlusTree {
     public Iterator<RecordId> scanAll() {
         // TODO(proj2): Return a BPlusTreeIterator.
         // TODO(proj4_part3): B+ tree locking
-
-        return Collections.emptyIterator();
+        LeafNode node = root.getLeftmostLeaf();
+        return new BPlusTreeIterator(node, node.scanAll());
     }
 
     /**
@@ -222,8 +221,8 @@ public class BPlusTree {
         typecheck(key);
         // TODO(proj2): Return a BPlusTreeIterator.
         // TODO(proj4_part3): B+ tree locking
-
-        return Collections.emptyIterator();
+        LeafNode node = root.get(key);
+        return new BPlusTreeIterator(node, node.scanGreaterEqual(key));
     }
 
     /**
@@ -239,8 +238,22 @@ public class BPlusTree {
         typecheck(key);
         // TODO(proj2): implement
         // TODO(proj4_part3): B+ tree locking
-
-        return;
+        try {
+            Optional<Pair<DataBox, Long>> ret = root.put(key, rid);
+            if (ret.isPresent()) {
+                DataBox splitKey = ret.orElse(null).getFirst();
+                long pageNum = ret.orElse(null).getSecond();
+                List<DataBox> newKeys = new ArrayList<>();
+                newKeys.add(splitKey);
+                List<Long> newChildern = new ArrayList<>();
+                newChildern.add(root.getPage().getPageNum());
+                newChildern.add(pageNum);
+                InnerNode newRoot = new InnerNode(metadata, bufferManager, newKeys, newChildern, lockContext);
+                updateRoot(newRoot);
+            }
+        } catch (BPlusTreeException e) {
+            throw e;
+        }
     }
 
     /**
@@ -282,7 +295,7 @@ public class BPlusTree {
         typecheck(key);
         // TODO(proj2): implement
         // TODO(proj4_part3): B+ tree locking
-
+        root.remove(key);
         return;
     }
 
@@ -385,19 +398,31 @@ public class BPlusTree {
     // Iterator ////////////////////////////////////////////////////////////////
     private class BPlusTreeIterator implements Iterator<RecordId> {
         // TODO(proj2): Add whatever fields and constructors you want here.
+        private Iterator<RecordId> currnetIter;
+        private LeafNode currentNode;
+
+        public BPlusTreeIterator(LeafNode node, Iterator<RecordId> iter) {
+            currentNode = node;
+            currnetIter = iter;
+        }
 
         @Override
         public boolean hasNext() {
             // TODO(proj2): implement
-
-            return false;
+            return currnetIter.hasNext() || currentNode.getRightSibling().isPresent();
         }
 
         @Override
         public RecordId next() {
             // TODO(proj2): implement
-
-            throw new NoSuchElementException();
+            if (!hasNext()) {
+                throw new NoSuchElementException();
+            }
+            if (!currnetIter.hasNext()) {
+                currentNode = currentNode.getRightSibling().orElse(null);
+                currnetIter = currentNode.scanAll();
+            }
+            return currnetIter.next();
         }
     }
 }
