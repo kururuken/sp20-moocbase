@@ -219,6 +219,60 @@ public class TestJoinOperator {
 
     @Test
     @Category(PublicTests.class)
+    public void testPNLJEmptyRight(){
+        try(Transaction transaction = d.beginTransaction()) {
+            transaction.createTable(TestUtils.createSchemaWithAllTypes(), "EmptyTable");
+            transaction.createTable(TestUtils.createSchemaWithAllTypes(), "NonemptyTable");
+
+            transaction.getTransactionContext().addRecord("NonemptyTable", TestUtils.createRecordWithAllTypesWithValue(1).getValues());
+
+            setSourceOperators(
+                new SequentialScanOperator(transaction.getTransactionContext(), "NonemptyTable"),
+                new SequentialScanOperator(transaction.getTransactionContext(), "EmptyTable")
+            );
+            startCountIOs();
+
+            QueryOperator joinOperator = new PNLJOperator(leftSourceOperator, rightSourceOperator, "int", "int",
+                transaction.getTransactionContext());
+            checkIOs(0);
+
+            Iterator<Record> outputIterator = joinOperator.iterator();
+            checkIOs(0);
+
+            assertFalse("should not have any match", outputIterator.hasNext());
+            checkIOs(0);
+        }
+    }
+
+    @Test
+    @Category(PublicTests.class)
+    public void testPNLJEmptyLeft(){
+        try(Transaction transaction = d.beginTransaction()) {
+            transaction.createTable(TestUtils.createSchemaWithAllTypes(), "EmptyTable");
+            transaction.createTable(TestUtils.createSchemaWithAllTypes(), "NonemptyTable");
+
+            transaction.getTransactionContext().addRecord("NonemptyTable", TestUtils.createRecordWithAllTypesWithValue(1).getValues());
+
+            setSourceOperators(
+                new SequentialScanOperator(transaction.getTransactionContext(), "EmptyTable"),
+                new SequentialScanOperator(transaction.getTransactionContext(), "NonemptyTable")
+            );
+            startCountIOs();
+
+            QueryOperator joinOperator = new PNLJOperator(leftSourceOperator, rightSourceOperator, "int", "int",
+                transaction.getTransactionContext());
+            checkIOs(0);
+
+            Iterator<Record> outputIterator = joinOperator.iterator();
+            checkIOs(1);
+
+            assertFalse("should not have any match", outputIterator.hasNext());
+            checkIOs(0);
+        }
+    }
+
+    @Test
+    @Category(PublicTests.class)
     public void testSimplePNLJOutputOrder() {
         try(Transaction transaction = d.beginTransaction()) {
             Record r1 = TestUtils.createRecordWithAllTypesWithValue(1);
@@ -237,6 +291,8 @@ public class TestJoinOperator {
             Record expectedRecord2 = new Record(expectedRecordValues2);
             transaction.createTable(TestUtils.createSchemaWithAllTypes(), "leftTable");
             transaction.createTable(TestUtils.createSchemaWithAllTypes(), "rightTable");
+
+            // 400 entries per page
 
             for (int i = 0; i < 400; i++) {
                 List<DataBox> vals;
