@@ -2,11 +2,13 @@ package edu.berkeley.cs186.database.query;
 
 import edu.berkeley.cs186.database.TransactionContext;
 import edu.berkeley.cs186.database.DatabaseException;
+import edu.berkeley.cs186.database.common.iterator.ArrayBacktrackingIterator;
 import edu.berkeley.cs186.database.common.iterator.BacktrackingIterator;
 import edu.berkeley.cs186.database.databox.DataBox;
 import edu.berkeley.cs186.database.table.Record;
 import edu.berkeley.cs186.database.table.Schema;
 import edu.berkeley.cs186.database.common.Pair;
+import edu.berkeley.cs186.database.memory.BufferManager;
 import edu.berkeley.cs186.database.memory.Page;
 
 import java.util.*;
@@ -72,8 +74,16 @@ public class SortOperator {
      */
     public Run sortRun(Run run) {
         // TODO(proj3_part1): implement
+        List<Record> list = new ArrayList<>();
+        Iterator<Record> it = run.iterator();
 
-        return null;
+        while(it.hasNext()){
+            list.add(it.next());
+        }
+
+        Collections.sort(list, comparator);
+
+        return createRunFromList(list);
     }
 
     /**
@@ -86,8 +96,38 @@ public class SortOperator {
      */
     public Run mergeSortedRuns(List<Run> runs) {
         // TODO(proj3_part1): implement
+        PriorityQueue<Pair<Record,Integer>> queue = new PriorityQueue<>(new Comparator<Pair<Record,Integer>>(){
+            @Override
+            public int compare(final Pair<Record,Integer> p1, final Pair<Record,Integer> p2) {
+                return SortOperator.this.comparator.compare(p1.getFirst(), p2.getFirst());
+            }
+        });
 
-        return null;
+        List<Iterator<Record>> its = new ArrayList<>();
+        for (Run run : runs) {
+            its.add(run.iterator());
+        }
+
+        // First, insert the first element in each run into the priority queue
+        for (int i = 0; i < runs.size(); i++) {
+            if (its.get(i).hasNext()){
+                queue.add(new Pair<>(its.get(i).next(), i));
+            }
+        }
+
+        // Then, each time we pop the smallest in the queue
+        // If the run that recored belongs to has next,
+        // we add that record to the queue
+        List<Record> list = new ArrayList<>();
+        while (!queue.isEmpty()) {
+            Pair<Record,Integer> pop = queue.poll();
+            list.add(pop.getFirst());
+            if (its.get(pop.getSecond()).hasNext()){
+                queue.add(new Pair<>(its.get(pop.getSecond()).next(), pop.getSecond()));
+            }
+        }
+
+        return createRunFromList(list);
     }
 
     /**
@@ -99,8 +139,12 @@ public class SortOperator {
      */
     public List<Run> mergePass(List<Run> runs) {
         // TODO(proj3_part1): implement
-
-        return Collections.emptyList();
+        List<Run> ret = new ArrayList<>();
+        for (int i = 0; i < runs.size(); i += numBuffers - 1) {
+            List<Run> tmp = runs.subList(i, (i + numBuffers - 1) < runs.size() ? (i + numBuffers - 1) : runs.size());
+            ret.add(mergeSortedRuns(tmp));
+        }
+        return ret;
     }
 
     /**
@@ -110,8 +154,22 @@ public class SortOperator {
      */
     public String sort() {
         // TODO(proj3_part1): implement
+        BacktrackingIterator<Page> pages = transaction.getTable(tableName).pageIterator();
+        BacktrackingIterator<Record> records = transaction.getTable(tableName).blockIterator(pages, numBuffers);
+        List<Run> runs = new ArrayList<>();
+        while (records.hasNext()) {
+            Run tmp = createRunFromIterator(records);
+            runs.add(sortRun(tmp));  // pass 0
+        }
 
-        return this.tableName; // TODO(proj3_part1): replace this!
+        if (runs.isEmpty())
+            return this.tableName;
+
+        while (runs.size() > 1){
+            runs = mergePass(runs); // pass 1 to n
+        }
+
+        return runs.get(0).tableName(); // TODO(proj3_part1): replace this!
     }
 
     public Iterator<Record> iterator() {
@@ -128,6 +186,12 @@ public class SortOperator {
      */
     Run createRun() {
         return new IntermediateRun();
+    }
+
+    Run createRunFromList(List<Record> records) {
+        Run newRun = createRun();
+        newRun.addRecords(records);
+        return newRun;
     }
 
     /**
