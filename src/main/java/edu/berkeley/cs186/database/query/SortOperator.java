@@ -172,7 +172,7 @@ public class SortOperator {
         return runs.get(0).tableName(); // TODO(proj3_part1): replace this!
     }
 
-    public Iterator<Record> iterator() {
+    public BacktrackingIterator<Record> iterator() {
         if (sortedTableName == null) {
             sortedTableName = sort();
         }
