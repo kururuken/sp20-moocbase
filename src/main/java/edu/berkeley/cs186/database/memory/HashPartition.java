@@ -17,6 +17,9 @@ public class HashPartition {
      * A class representing a partition used in hashing operations for grace hash
      * join. This partition supports adding and iterating over records for two
      * different relations.
+     * 
+     * In GHJ, records in left and right relation that have same hash value in the first partition
+     * will be put in to same memory partition. This HashPartition class emulate this 
      *
      * @param transaction the transaction context this buffer will be used in
      * @param leftSchema the schema for the type of records in the left table to be added to this partition
