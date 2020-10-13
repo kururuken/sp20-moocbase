@@ -1,6 +1,7 @@
 package edu.berkeley.cs186.database.query;
 
 import java.util.*;
+import java.util.Map.Entry;
 
 import edu.berkeley.cs186.database.TransactionContext;
 import edu.berkeley.cs186.database.common.PredicateOperator;
@@ -226,6 +227,27 @@ public class QueryPlan {
      * @return an iterator of records that is the result of this query
      */
     public Iterator<Record> execute() {
+        List<String> allTables = new ArrayList<>(this.joinTableNames);
+        allTables.add(this.startTableName);
+        Map<Set<String>, QueryOperator> singleAccess = new HashMap<>();
+
+        for (String table : allTables) {
+            QueryOperator op = this.minCostSingleAccess(table);
+            Set<String> key = new HashSet<>();
+            key.add(table);
+            singleAccess.put(key, op);
+        }
+
+        Map<Set<String>, QueryOperator> nextPass = new HashMap<>(singleAccess);
+        while (nextPass.size() > 1) {
+            nextPass = this.minCostJoins(nextPass, singleAccess);
+        }
+
+        this.finalOperator = nextPass.values().iterator().next();
+        this.addGroupBy();
+        this.addProjects();
+
+
         // TODO(proj3_part2): implement
 
         // Pass 1: Iterate through all single tables. For each single table, find
@@ -239,7 +261,7 @@ public class QueryPlan {
         // Get the lowest cost operator from the last pass, add GROUP BY and SELECT
         // operators, and return an iterator on the final operator
 
-        return this.executeNaive(); // TODO(proj3_part2): Replace this!!! Allows you to test intermediate functionality
+        return this.finalOperator.execute(); // TODO(proj3_part2): Replace this!!! Allows you to test intermediate functionality
     }
 
     /**
@@ -326,7 +348,28 @@ public class QueryPlan {
      * pushed down select operators
      */
     QueryOperator minCostSingleAccess(String table) {
-        QueryOperator minOp = null;
+        QueryOperator minOp = new SequentialScanOperator(this.transaction, table);
+        int minCost = minOp.estimateIOCost();
+
+        List<Integer> eligibleIndexColumns = getEligibleIndexColumns(table);
+        int selectIndex = -1;
+        for (Integer index : eligibleIndexColumns) {
+            QueryOperator indexScanOp = new IndexScanOperator(
+                this.transaction, 
+                table, 
+                this.selectColumnNames.get(index), 
+                this.selectOperators.get(index), 
+                this.selectDataBoxes.get(index)
+                );
+            int cost = indexScanOp.getIOCost();
+            if (minCost > cost) {
+                minCost = cost;
+                minOp = indexScanOp;
+                selectIndex = index;
+            }
+        }
+
+        minOp = addEligibleSelections(minOp, selectIndex); // if no index available, selectIndex remains -1
 
         // Find the cost of a sequential scan of the table
         // minOp = new SequentialScanOperator(this.transaction, table);
@@ -359,6 +402,11 @@ public class QueryPlan {
 
         int minCost = Integer.MAX_VALUE;
         List<QueryOperator> allJoins = new ArrayList<>();
+
+        // Looks like we are only considering SNLJ and BNLJ
+        // leaving out the rest like SMJ or GHJ (actually there is no estimateIO method defined).
+        // It is probably because it's too complicated, and SMJ will sort the input iterators.
+        // So we need to take into account whether certain strategy will result in a sorted output.
         allJoins.add(new SNLJOperator(leftOp, rightOp, leftColumn, rightColumn, this.transaction));
         allJoins.add(new BNLJOperator(leftOp, rightOp, leftColumn, rightColumn, this.transaction));
 
@@ -380,12 +428,79 @@ public class QueryPlan {
      * table names being joined to its lowest cost join operator. A join predicate
      * is represented as elements of this.joinTableNames, this.joinLeftColumnNames,
      * and this.joinRightColumnNames that correspond to the same index of these lists.
-     *
+     * 
+     * SELECT * 
+     * FROM A
+     * INNER JOIN (
+     *   SELECT *
+     *   FROM B
+     *   INNER JOIN C
+     *   WHERE b2 = c
+     * )
+     * WHERE a = b1
+     * 
+     * We can do this join in 2 order
+     * 
+     *   /  \
+     *  / | C
+     * A  B
+     * 
+     *   /  \
+     *  / | A
+     * B  C
+     * 
      * @return a mapping of table names to a join QueryOperator
      */
-    Map<Set, QueryOperator> minCostJoins(Map<Set, QueryOperator> prevMap,
-                                         Map<Set, QueryOperator> pass1Map) {
-        Map<Set, QueryOperator> map = new HashMap<>();
+    Map<Set<String>, QueryOperator> minCostJoins(Map<Set<String>, QueryOperator> prevMap,
+                                         Map<Set<String>, QueryOperator> pass1Map) {
+        Map<Set<String>, QueryOperator> map = new HashMap<>();
+
+        for (Entry<Set<String>, QueryOperator> entry : prevMap.entrySet()) {
+            for (int i = 0; i < this.joinLeftColumnNames.size(); i++) {
+                Set<String> prev = entry.getKey();
+                QueryOperator leftOp = entry.getValue(); // we use the left tree, so prev operator will always be on the left
+                String leftTable = this.getJoinLeftColumnNameByIndex(i)[0]; // this left and right is not the exact join left and join right, it depends on
+                String leftColumnName = this.getJoinLeftColumnNameByIndex(i)[1];
+                String rightTable = this.getJoinRightColumnNameByIndex(i)[0];
+                String rightColumnName = this.getJoinRightColumnNameByIndex(i)[1];
+                
+                Boolean leftTableExistsInPrev = prev.contains(leftTable);
+                Boolean rightTableExistsInPrev = prev.contains(rightTable);
+                Set<String> key = new HashSet<>();
+                Set<String> next = new HashSet<>(prev);
+                QueryOperator rightOp;
+                QueryOperator newOp;
+                if (leftTableExistsInPrev == rightTableExistsInPrev) {
+                    // case 3 (xor)
+                    continue;
+                } else if (leftTableExistsInPrev) {
+                    // case 1
+                    // left op corresponds to join left column
+                    key.add(rightTable);
+                    rightOp = pass1Map.get(key);
+                    newOp = this.minCostJoinType(leftOp, rightOp, leftColumnName, rightColumnName);
+                    next.add(rightTable);
+                } else {
+                    // case 2
+                    // left op corresponds to join right column
+                    key.add(leftTable);
+                    rightOp = pass1Map.get(key);
+                    newOp = this.minCostJoinType(leftOp, rightOp, rightColumnName, leftColumnName);
+                    next.add(leftTable);
+                }
+
+                // certain keys might already be in the return map
+                // we need to pick up the one with min IO cost
+                if (map.containsKey(next)) {
+                    QueryOperator oldOp = map.get(next);
+                    if (newOp.estimateIOCost() < oldOp.estimateIOCost()) {
+                        map.put(next, newOp);
+                    }
+                } else {
+                    map.put(next, newOp);
+                }
+            }
+        }
 
         // TODO(proj3_part2): implement
 
