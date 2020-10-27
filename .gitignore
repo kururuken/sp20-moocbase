@@ -27,4 +27,5 @@ hw*.zip
 .vscode
 *.pdf
 *.dot
+.devcontainer
 
