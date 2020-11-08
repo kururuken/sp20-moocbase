@@ -34,6 +34,7 @@ public class ResourceName {
     }
 
     ResourceName(ResourceName parent, Pair<String, Long> name) {
+        // Different instances of same class can access each other's private member
         names = new ArrayList<>(parent.names);
         names.add(name);
         this.hash = names.stream().map(x -> x == null ? null : x.getSecond()).collect(toList()).hashCode();

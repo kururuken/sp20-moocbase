@@ -21,7 +21,24 @@ public enum LockType {
             throw new NullPointerException("null lock type");
         }
         // TODO(proj4_part1): implement
-
+        if (b == NL) {
+            // NL is compatible with any type of lock
+            return true;
+        }
+        switch (a) {
+            case IS:
+                return !(b == X);
+            case IX:
+                return b == IS || b == IX;
+            case S:
+                return b == IS || b == S;
+            case SIX:
+                return b == IS;
+            case X:
+                return false;
+            case NL:
+                return true;
+        }
         return false;
     }
 
@@ -53,7 +70,25 @@ public enum LockType {
             throw new NullPointerException("null lock type");
         }
         // TODO(proj4_part1): implement
-
+        // only intent lock can have children
+        // S/X are meant to be the leaf level lock, ie you don't need to require lock
+        // for lower level
+        if (childLockType == NL) {
+            return true;
+        }
+        switch (parentLockType) {
+            case S:
+            case X:
+                return false;
+            case IS:
+                return childLockType == IS || childLockType == S;
+            case IX:
+                return true;
+            case SIX:
+                return childLockType != IS && childLockType != S; // redundent since we already have S lock
+            case NL:
+                return false;
+        }
         return false;
     }
 
@@ -68,7 +103,23 @@ public enum LockType {
             throw new NullPointerException("null lock type");
         }
         // TODO(proj4_part1): implement
-
+        if (required == NL) {
+            return true;
+        }
+        switch (substitute) {
+            case S:
+                return required == S;
+            case X:
+                return required == S || required == X;
+            case IS:
+                return required == IS;
+            case IX:
+                return required == IS || required == IX;
+            case SIX:
+                return required == S || required == IS || required == IX;
+            case NL:
+                return false;
+        }
         return false;
     }
 
