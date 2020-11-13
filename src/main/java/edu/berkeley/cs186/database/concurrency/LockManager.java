@@ -421,7 +421,10 @@ public class LockManager {
 
             if (oldLockType == newLockType)
                 throw new DuplicateLockRequestException("Duplicate lock acquisition");
-
+            
+            // promotion to SIX is not allowed
+            // this request should go to acquireAndRelease
+            // see project markdown
             if (newLockType == LockType.SIX || !LockType.substitutable(newLockType, oldLockType))
                 throw new InvalidLockException("Cannot promote lock");
             

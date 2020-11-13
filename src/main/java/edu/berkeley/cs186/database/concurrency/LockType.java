@@ -27,7 +27,7 @@ public enum LockType {
         }
         switch (a) {
             case IS:
-                return !(b == X);
+                return b != X;
             case IX:
                 return b == IS || b == IX;
             case S:
