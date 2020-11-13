@@ -287,13 +287,13 @@ public class LockContext {
         target.add(LockType.IX);
         target.add(LockType.SIX);
         List<Pair<ResourceName, LockType>> ret = getAndReleaseChildLocks(transaction, target);
-        List<LockType> childTypes = ret.stream().map(x -> x.getSecond()).collect(Collectors.toList());
+        List<LockType> childTypes = ret.stream().map(Pair::getSecond).collect(Collectors.toList());
         childTypes.add(currentType);
-        List<ResourceName> childResources = ret.stream().map(x -> x.getFirst()).collect(Collectors.toList());
+        List<ResourceName> childResources = ret.stream().map(Pair::getFirst).collect(Collectors.toList());
         childResources.add(name);
-        boolean onlySIS = !childTypes
+        boolean onlySIS = childTypes
             .stream()
-            .anyMatch(x -> x == LockType.IX || x == LockType.X || x == LockType.SIX);
+            .noneMatch(x -> x == LockType.IX || x == LockType.X || x == LockType.SIX);
         LockType escalateType = onlySIS ? LockType.S : LockType.X;
         if (childResources.size() == 1 && escalateType == currentType)
             return; // no need to go to lock manager
@@ -372,7 +372,7 @@ public class LockContext {
         target.add(LockType.S);
         target.add(LockType.IS);
         List<Pair<ResourceName, LockType>> ret = getAndReleaseChildLocks(transaction, target);
-        return ret.stream().map(x -> x.getFirst()).collect(Collectors.toList()); // 
+        return ret.stream().map(Pair::getFirst).collect(Collectors.toList()); // 
     }
 
     private List<Pair<ResourceName, LockType>> getAndReleaseChildLocks(TransactionContext transaction, List<LockType> targetLockTypes) {
