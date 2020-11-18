@@ -140,6 +140,15 @@ public class TestLockUtil {
 
     @Test
     @Category(PublicTests.class)
+    public void testSufficientEffectiveLock() {
+        LockUtil.ensureSufficientLockHeld(tableContext, LockType.X);
+        lockManager.startLog();
+        LockUtil.ensureSufficientLockHeld(pageContexts[1], LockType.S);
+        assertEquals(Collections.emptyList(), lockManager.log);
+    }
+
+    @Test
+    @Category(PublicTests.class)
     public void testSimpleNL() {
         lockManager.startLog();
         LockUtil.ensureSufficientLockHeld(tableContext, LockType.NL);

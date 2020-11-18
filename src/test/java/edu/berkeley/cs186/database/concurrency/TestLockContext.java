@@ -218,6 +218,23 @@ public class TestLockContext {
 
     @Test
     @Category(PublicTests.class)
+    public void testPromoteSIX() {
+        TransactionContext t1 = transactions[1];
+        LockContext page2LockContext = tableLockContext.childContext("page2", 2);
+
+        dbLockContext.acquire(t1, LockType.IX);
+        tableLockContext.acquire(t1, LockType.IX);
+        pageLockContext.acquire(t1, LockType.X);
+        page2LockContext.acquire(t1, LockType.S);
+        tableLockContext.promote(t1, LockType.SIX);
+
+        assertTrue(TestLockManager.holds(lockManager, t1, tableLockContext.getResourceName(), LockType.SIX));
+        assertTrue(TestLockManager.holds(lockManager, t1, pageLockContext.getResourceName(), LockType.X));
+        assertFalse(TestLockManager.holds(lockManager, t1, page2LockContext.getResourceName(), LockType.S)); 
+    }
+
+    @Test
+    @Category(PublicTests.class)
     public void testEscalateFail() {
         TransactionContext t1 = transactions[1];
 
@@ -344,6 +361,19 @@ public class TestLockContext {
         assertEquals(LockType.NL, pageLockContext.getExplicitLockType(t4));
 
         runner.joinAll();
+    }
+
+    @Test
+    @Category(PublicTests.class)
+    public void testGetEffectiveLockType() {
+        TransactionContext t1 = transactions[1];
+
+        dbLockContext.acquire(t1, LockType.IX);
+        tableLockContext.acquire(t1, LockType.SIX);
+
+        assertEquals(LockType.S, pageLockContext.getEffectiveLockType(t1));
+        assertEquals(LockType.S, tableLockContext.getEffectiveLockType(t1));
+        assertEquals(LockType.IX, dbLockContext.getEffectiveLockType(t1));
     }
 
     @Test

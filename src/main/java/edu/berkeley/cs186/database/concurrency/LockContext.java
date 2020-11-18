@@ -72,7 +72,9 @@ import javax.lang.model.util.ElementScanner6;
  * therefore compatible with all it's anscestors. So any two lock on this path would be compatible.
  * 
  * This obsevation tells us that to check whether it is valid to acquire to release a lock on a resource, we only have to 
- * check the parent and children of this resource for the SAME TRANSACTION.
+ * check the parent and children of this resource for the SAME TRANSACTION. Another conclusion we can get is that acquire and release only
+ * applies to the bottom element in a locking tree, i.e. some context that does not have any child locks. If you want to modify some intermediate
+ * element in a locking path, use promote or escalate.
  * 
  * Now let's consider promotion. Actually in promotion the only compatibility problem we should consider is with parent.
  * This is because in a valid promotion, children will always be compatible with the lock type that we are promoting to.
@@ -238,11 +240,11 @@ public class LockContext {
         // no need to check children, see comments on the top
         if (parent != null && !LockType.canBeParentLock(parent.getExplicitLockType(transaction), newLockType))
             throw new InvalidLockException("Invalid parent lock type");
-        if (newLockType != LockType.NL) {
+        if (newLockType != LockType.SIX) {
             lockman.promote(transaction, name, newLockType);
         } else {
             if (hasSIXAncestor(transaction))
-                throw new InvalidLockException("Cannot promote to SIX because it has SIX anscestor");
+                throw new InvalidLockException("SIX under SIX is not allowed in promotion");
             List<ResourceName> sisNames = sisDescendants(transaction);
             sisNames.add(name);
             // promotion to SIX should go through acquireAndRelease
@@ -480,12 +482,9 @@ public class LockContext {
             throw new InvalidLockException("Invalid parent lock type");
         // only need to traverse the children of this transaction.
         // the the comment on the top
-        for (Long childContextNum : transactionChildren.getOrDefault(transaction.getTransNum(), new ArrayList<>())) {
-            LockContext childContext = childContext(childContextNum);
-            LockType childLockType = childContext.getExplicitLockType(transaction);
-            if (!LockType.canBeParentLock(lockType, childLockType))
-                throw new InvalidLockException("Invalid parent lock type");
-        }
+        List<Long> childContexts = transactionChildren.getOrDefault(transaction.getTransNum(), new ArrayList<>());
+        if (!childContexts.isEmpty())
+            throw new InvalidLockException("Having children when acquiring/releasing lock");
     }
 
     private void checkReadonly() 
