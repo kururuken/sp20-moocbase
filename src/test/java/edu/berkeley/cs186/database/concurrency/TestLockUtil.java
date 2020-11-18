@@ -140,6 +140,17 @@ public class TestLockUtil {
 
     @Test
     @Category(PublicTests.class)
+    public void testSIX3() {
+        LockUtil.ensureSufficientLockHeld(tableContext, LockType.S);
+        lockManager.startLog();
+        LockUtil.ensureSufficientLockHeld(pageContexts[0], LockType.X);
+        assertTrue(TestLockManager.holds(lockManager, transaction, tableContext.name, LockType.SIX));
+        assertTrue(TestLockManager.holds(lockManager, transaction, pageContexts[0].name, LockType.X));
+        assertTrue(TestLockManager.holds(lockManager, transaction, dbContext.name, LockType.IX));
+    }
+
+    @Test
+    @Category(PublicTests.class)
     public void testSufficientEffectiveLock() {
         LockUtil.ensureSufficientLockHeld(tableContext, LockType.X);
         lockManager.startLog();

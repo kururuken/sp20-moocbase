@@ -83,6 +83,8 @@ import javax.lang.model.util.ElementScanner6;
  * we should consider is with parent.
  * 
  * The only exception to this is SIX, which we will address on on the method.
+ * 
+ * We will be using Strict Two-Phase Locking in our database, which means that lock releases only happen when the transaction finishes, in the cleanup method.
  */
 public class LockContext {
     // You should not remove any of these fields. You may add additional fields/methods as you see fit.

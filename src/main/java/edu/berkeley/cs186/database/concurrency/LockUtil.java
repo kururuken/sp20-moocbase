@@ -50,7 +50,7 @@ public class LockUtil {
      *       Current explicite lock type is NL. This means one of our ancestor will have type S or SIX (not X since our effective type will be X as well).
      *       In this case we go from bottom to top, promote any thing from NL to IX, until we encounter S or SIX
      *       If we encounter SIX, then we stop, because ancestors of SIX must be IX (maybe SIX, but doesn't matter)
-     *       If we encounter S, promote any IS ancestors to IX and promote it to X.
+     *       If we encounter S, promote any IS ancestors to IX and promote it to SIX.
      * 
      *  3. NL
      *     If effective type is NL, then all it's ancestors are intent locks or NL. 
@@ -108,10 +108,11 @@ public class LockUtil {
                             LockType stopType = stopContext.getExplicitLockType(transaction);
                             if (stopType == LockType.S) {
                                 ensureAncestorLocks(stopContext.parent, LockType.IX, transaction);
-                                stopContext.promote(transaction, LockType.X);
+                                stopContext.promote(transaction, LockType.SIX);
                             } else if (stopType != LockType.SIX) {
                                 throw new InvalidLockException("Not possible");
                             }
+                            lockContext.acquire(transaction, LockType.X);
                             break;
                         default:
                             throw new InvalidLockException("Not possible");
