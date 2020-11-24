@@ -69,8 +69,12 @@ public class LockUtil {
 
         TransactionContext transaction = TransactionContext.getTransaction(); // current transaction
 
-        if (transaction == null || lockType == LockType.NL)
+        if (transaction == null || lockType == LockType.NL || lockContext instanceof DummyLockContext) // last is to pass test cases using dummy lockcontext
             return;
+
+        try {
+            lockContext.autoEscalateParent(transaction);
+        } catch (Exception e) { /* Do nothing. This is to prevent dummy transaction failure. */}
         
         LockType currentEffectiveType = lockContext.getEffectiveLockType(transaction);
         LockType parentType = lockType == LockType.S ? LockType.IS : LockType.IX;

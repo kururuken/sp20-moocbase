@@ -1,5 +1,7 @@
 package edu.berkeley.cs186.database.memory;
 
+import edu.berkeley.cs186.database.Transaction;
+import edu.berkeley.cs186.database.TransactionContext;
 import edu.berkeley.cs186.database.common.AbstractBuffer;
 import edu.berkeley.cs186.database.common.Buffer;
 import edu.berkeley.cs186.database.concurrency.*;
@@ -51,6 +53,10 @@ public class Page {
      */
     public Buffer getBuffer() {
         return new PageBuffer();
+    }
+
+    public LockContext getLockContext() {
+        return this.lockContext;
     }
 
     /**
@@ -205,6 +211,7 @@ public class Page {
         @Override
         public Buffer get(byte[] dst, int offset, int length) {
             // TODO(proj4_part3): locking code here
+            LockUtil.ensureSufficientLockHeld(Page.this.lockContext, LockType.S);
             Page.this.readBytes(this.offset + offset, length, dst);
             return this;
         }
@@ -220,6 +227,7 @@ public class Page {
         @Override
         public Buffer put(byte[] src, int offset, int length) {
             // TODO(proj4_part3): locking code here
+            // LockUtil.ensureSufficientLockHeld(Page.this.lockContext, LockType.X);
             Page.this.writeBytes(this.offset + offset, length, src);
             return this;
         }

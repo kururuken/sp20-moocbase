@@ -120,6 +120,9 @@ public class PageDirectory implements HeapFile {
         }
 
         Page page = this.firstHeader.loadPageWithSpace(requiredSpace);
+        LockContext context = page.getLockContext();
+        if (!context.isReadOnly()) //  temp tables are readonly, since they are transaction specific, there is no need to have locking
+            LockUtil.ensureSufficientLockHeld(context, LockType.X);
 
         return new DataPage(pageDirectoryId, page);
     }

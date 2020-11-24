@@ -2,6 +2,7 @@ package edu.berkeley.cs186.database.concurrency;
 // If you see this line, you have successfully pulled the latest changes from the skeleton for proj4!
 import edu.berkeley.cs186.database.TransactionContext;
 import edu.berkeley.cs186.database.common.Pair;
+import edu.berkeley.cs186.database.DatabaseException;
 
 import java.lang.ProcessBuilder.Redirect.Type;
 import java.util.*;
@@ -115,6 +116,8 @@ public class LockContext {
     // Whether or not any new child LockContexts should be marked readonly.
     protected boolean childLocksDisabled;
 
+    private boolean tableAutoEscalate;
+
     public LockContext(LockManager lockman, LockContext parent, Pair<String, Long> name) {
         this(lockman, parent, name, false);
     }
@@ -140,6 +143,7 @@ public class LockContext {
         this.capacity = -1;
         this.children = new ConcurrentHashMap<>();
         this.childLocksDisabled = readonly;
+        this.tableAutoEscalate = true;
     }
 
     /**
@@ -401,6 +405,21 @@ public class LockContext {
         return ret;
     }
 
+    public void releaseAllLocks(TransactionContext transaction) {
+        LockType currentType = getExplicitLockType(transaction);
+        long transactionNum = transaction.getTransNum();
+        if (currentType == LockType.NL)
+            return;
+        List<Long> childContexts = new ArrayList<>(transactionChildren.getOrDefault(transactionNum, new ArrayList<>()));
+        for (Long childContextNum : childContexts) {
+            LockContext childContext = childContext(childContextNum);
+            childContext.releaseAllLocks(transaction);
+        }
+        transactionChildren.remove(transactionNum);
+        numChildLocks.put(transactionNum, 0);
+        release(transaction);
+    }
+
     /**
      * Get the type of lock that TRANSACTION holds at this level, or NL if no lock is held at this level.
      */
@@ -528,6 +547,55 @@ public class LockContext {
 
     private long getContextNum() {
         return name.getCurrentName().getSecond();
+    }
+
+    public Boolean isReadOnly() {
+        return readonly;
+    }
+
+    // auto escalation related functions
+
+    private boolean isTableContext() {
+        return this.name.getNames().size() == 2;// dumb way of checking whether this context is a table context
+    }
+
+    private boolean isPageContext() {
+        return this.name.getNames().size() == 3; // dumb way of checking whether this context is a table context
+    }
+
+    public void enableTableAutoEscalate() {
+        if (!isTableContext()) 
+            throw new UnsupportedOperationException("Only table can have auto escalation");
+        this.tableAutoEscalate = true;
+    }
+
+    public void disableTableAutoEscalate() {
+        if (!isTableContext())
+            throw new UnsupportedOperationException("Only table can have auto escalation");
+        this.tableAutoEscalate = false;
+    }
+
+    private boolean shouldTableAutoEscalate(TransactionContext transaction) {
+        if (!isTableContext() || !this.tableAutoEscalate)
+            return false;
+        disableTableAutoEscalate(); // this is to prevent recursion
+        try {
+            int numPages = transaction.getTable(this.name.getCurrentName().getFirst()).getNumDataPages();
+            capacity(numPages);
+            if (numPages >= 10 && saturation(transaction) >= 0.2)
+                return true;
+            return false;
+        } catch (DatabaseException e) {
+            return false;
+        } finally {
+            enableTableAutoEscalate();
+        }
+    }
+
+    public void autoEscalateParent(TransactionContext transaction) {
+        if (isPageContext() && !readonly && this.parent.shouldTableAutoEscalate(transaction))
+            // read only pages are not supposed to do auto escalation (like index pages)
+        this.parent.escalate(transaction);
     }
 
 

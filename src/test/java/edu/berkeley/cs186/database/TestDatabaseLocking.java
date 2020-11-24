@@ -460,6 +460,9 @@ public class TestDatabaseLocking {
         }
     }
 
+    // what's the purpose of this test?
+    // loading an empty table will not cause any page IO
+    // why we need to set the capacity?
     @Test
     @Category(PublicTests.class)
     public void testPageDirectoryCapacityLoad() {
