@@ -71,6 +71,29 @@ abstract class LogRecord {
 
     /**
      * Gets the LSN of record to undo next, if applicable
+     * 
+     * Notes: undoNextLSN points to the prevLSN of the original log
+     * of this undo record(CLR).
+     * 
+     * For the purpose of keeping this, consider the following scenerio:
+     * One transaction is aborting and is undoing changes, and the system crashes.
+     * When the system restarts, we need to continue the undo, and the record with latest LSN
+     * is an undo Record(CLR). So we undo this change. 
+     * 
+     * But what's next? Which record should we undo next? We cannot rely on prevLSN because
+     * it's not the NEXT record we want to undo(if it is an undo record), but rather the previous undo record that we should have undone
+     * 
+     * See the following examle
+     * 
+     * 1 - 2 - 3 - 4 - ABORT - U4 - U3 - *CRASH
+     * 
+     * In the recovery phase we will first redo any logs whose change are
+     * not yet in the disk. Then we will start the undo phase. In the redo phase 
+     * we will redo U3 (effect equals to undo 3), but here comes the problem. Which 
+     * record to undo next? It is where undoNextLSN helps, it indicates that 2 will be the next 
+     * record to undo.
+     * 
+     * When we restart, we see U3. Since U3 is on disk, the changes of U3 is flushed to disk
      * @return optional instance containing transaction number
      */
     public Optional<Long> getUndoNextLSN() {

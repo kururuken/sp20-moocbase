@@ -1164,13 +1164,14 @@ public class Database implements AutoCloseable {
             // TODO(proj5): replace immediate cleanup() call with job (the commented out code)
 
             transactionContext.deleteAllTempTables();
+            executor.execute(() -> {
+                recoveryManager.commit(transNum);
+                this.cleanup();
+            });
+            // recoveryManager.commit(transNum);
 
-            recoveryManager.commit(transNum);
-
-            this.cleanup();
-            /*
-            executor.execute(this::cleanup);
-            */
+            // // this.cleanup();
+            // executor.execute(this::cleanup);
         }
 
         @Override
