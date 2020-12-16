@@ -596,7 +596,6 @@ public class ARIESRecoveryManager implements RecoveryManager {
             Pair<LogRecord, Boolean> clrPair = prevLog.undo(lastLSN);
             LogRecord record = clrPair.getFirst();
             assert record.isRedoable();
-            record.redo(diskSpaceManager, bufferManager);
             lastLSN = logManager.appendToLog(record);
             transactionEntry.lastLSN = lastLSN;
             // needs to update page table accordingly
@@ -613,6 +612,7 @@ public class ARIESRecoveryManager implements RecoveryManager {
             if (clrPair.getSecond()) {
                 logManager.flushToLSN(lastLSN); // this clr log needs to be flushed immediately
             }
+            record.redo(diskSpaceManager, bufferManager);
         }
         return prevLog.getUndoNextLSN().orElse(prevLog.getPrevLSN().orElse(0l));
     }
@@ -710,32 +710,30 @@ public class ARIESRecoveryManager implements RecoveryManager {
 
         // needs to do the clean up afterwards since we cannot remove the entry from map
         // while we are iterating it
-        List<Long> committingTransactions = new ArrayList<>();
-        for (Entry<Long, TransactionTableEntry> entry : transactionTable.entrySet()) {
-            long transNum = entry.getKey();
-            TransactionTableEntry transactionEntry = entry.getValue();
-            switch (transactionEntry.transaction.getStatus()) {
-                case RUNNING:
-                    abort(transNum);
-                    transactionEntry.transaction.setStatus(Status.RECOVERY_ABORTING);
-                    break;
+        
+        List<Long> committingTransactions = 
+            transactionTable
+                .entrySet()
+                .stream()
+                .filter(entry -> entry.getValue().transaction.getStatus() == Status.COMMITTING)
+                .map(entry -> entry.getKey())
+                .collect(Collectors.toList());
+        List<Long> completeTransactions = 
+            transactionTable
+                .entrySet()
+                .stream()
+                .filter(entry -> entry.getValue().transaction.getStatus() == Status.COMPLETE)
+                .map(entry -> entry.getKey())
+                .collect(Collectors.toList());
+        List<Long> abortingTransactions = 
+            transactionTable
+                .entrySet()
+                .stream()
+                .filter(entry -> entry.getValue().transaction.getStatus() == Status.RUNNING)
+                .map(entry -> entry.getKey())
+                .collect(Collectors.toList());
 
-                case COMMITTING:
-                    committingTransactions.add(transNum);
-                    break;
-
-                case ABORTING:
-                case COMPLETE:
-                    throw new UnsupportedOperationException("should not arrive here"); 
-                
-                case RECOVERY_ABORTING:
-                    // do nothing
-                    break;
-
-                default:
-                    break;
-            }
-        }
+        completeTransactions.stream().forEach(transNum -> transactionTable.remove(transNum));
         committingTransactions.stream().forEach(transNum -> {
             TransactionTableEntry transactionEntry = transactionTable.get(transNum);
             // the order of function calls should be fine.
@@ -743,7 +741,10 @@ public class ARIESRecoveryManager implements RecoveryManager {
             transactionEntry.transaction.cleanup();
             end(transNum);
         });
-        
+        abortingTransactions.stream().forEach(transNum -> {
+            abort(transNum);
+            transactionTable.get(transNum).transaction.setStatus(Status.RECOVERY_ABORTING);
+        });
         return;
     }
 
@@ -761,7 +762,7 @@ public class ARIESRecoveryManager implements RecoveryManager {
      */
     void restartRedo() {
         // TODO(proj5): implement
-        long LSN = dirtyPageTable.entrySet().stream().max(Comparator.comparing(Map.Entry::getValue)).get().getValue();
+        long LSN = dirtyPageTable.entrySet().stream().min(Comparator.comparing(Map.Entry::getValue)).get().getValue();
         Iterator<LogRecord> it = logManager.scanFrom(LSN);
         while(it.hasNext()) {
             LogRecord record = it.next();
@@ -792,7 +793,7 @@ public class ARIESRecoveryManager implements RecoveryManager {
             .filter(x -> x.transaction.getStatus() == Status.RECOVERY_ABORTING)
             .map(x -> new Pair<Long, TransactionTableEntry>(x.lastLSN, x))
             .collect(Collectors.toSet());
-        PriorityQueue<Pair<Long, TransactionTableEntry>> queue = new PriorityQueue<>(ARIESRecoveryManager.PairFirstReverseComparator);
+        PriorityQueue<Pair<Long, TransactionTableEntry>> queue = new PriorityQueue<>(new PairFirstReverseComparator<>());
         queue.addAll(abortingTrans);
 
         while (!queue.isEmpty()) {
@@ -856,6 +857,10 @@ public class ARIESRecoveryManager implements RecoveryManager {
                             // we have to write the status ourselves
                             transaction.cleanup(); 
                             transaction.setStatus(Status.COMPLETE);
+                            // cannot remove here because in end checkpoint log
+                            // we might readd this transaction if the status saved in checkpoint is committing
+
+                            // transactionTable.remove(transaction.getTransNum());
                             break;
                         default:
                             break;
@@ -947,8 +952,8 @@ public class ARIESRecoveryManager implements RecoveryManager {
                  *     since we write the abort record before we write any undo record, if we miss that abort record
                  *     we will think that the transaction is still RUNNIG
                  *     abort record(we didn't see this ) -> begin checkpoint -> undo record(now we think it's still RUNNING) -> end checkpoint
-                 *     however, we don't care in this case because any RUNNING transaction will be turned into RECOVERY_ABORTING at the end of analysis
-                 *     so it is fine
+                 *     although in this case any RUNNING transaction will be turned into RECOVERY_ABORTING at the end of analysis
+                 *     we will emit two abort transaction log record here. This is not good
                  *   
                  * 3. Any other reverse order is not possible. 
                  *     again, what in checkpoint is possibly order, but never newer than what we saw in logs. So for example if
@@ -978,6 +983,8 @@ public class ARIESRecoveryManager implements RecoveryManager {
                             return trans;
                         }).andThen(TransactionTableEntry::new));
                         transactionTable.computeIfPresent(transNum, (num, entry) -> {
+                            if (entry.transaction.getStatus() == Status.RUNNING && status == Status.ABORTING)
+                            entry.transaction.setStatus(Status.RECOVERY_ABORTING);
                             entry.lastLSN = lastLSN > entry.lastLSN ? lastLSN : entry.lastLSN;
                             return entry;
                         });
@@ -1018,8 +1025,9 @@ public class ARIESRecoveryManager implements RecoveryManager {
             case UPDATE_PAGE:
             case UNDO_UPDATE_PAGE:
                 long pageLSN = bufferManager.fetchPage(dbContext, record.getPageNum().get(), false).getPageLSN();
-                return dirtyPageTable.containsKey(recLSN)
-                    && recLSN >= dirtyPageTable.get(recLSN)
+                long pageNum = record.getPageNum().get();
+                return dirtyPageTable.containsKey(pageNum)
+                    && recLSN >= dirtyPageTable.get(pageNum)
                     && pageLSN < recLSN;
             
             case ALLOC_PART:
